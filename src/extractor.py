@@ -26,9 +26,9 @@ def get_all_groups() -> list[str]:
         return ["产品讨论群", "投资交流群", "技术群"]
 
     try:
-        _ensure_decrypted_db()
+        db_paths = _prepare_db_paths()
         groups: set[str] = set()
-        for db_path in _iter_db_paths():
+        for db_path in db_paths:
             try:
                 with sqlite3.connect(db_path) as conn:
                     rows = conn.execute(
@@ -62,8 +62,8 @@ def get_messages(group_name: str, start: datetime, end: datetime) -> list[dict]:
         if end < start:
             return []
 
-        _ensure_decrypted_db()
-        chatroom_ids = _get_chatroom_ids_by_name(group_name.strip())
+        db_paths = _prepare_db_paths()
+        chatroom_ids = _get_chatroom_ids_by_name(group_name.strip(), db_paths)
         if not chatroom_ids:
             return []
 
@@ -71,7 +71,7 @@ def get_messages(group_name: str, start: datetime, end: datetime) -> list[dict]:
         start_ts = int(start.timestamp())
         end_ts = int(end.timestamp())
 
-        for db_path in _iter_db_paths():
+        for db_path in db_paths:
             try:
                 with sqlite3.connect(db_path) as conn:
                     conn.row_factory = sqlite3.Row
@@ -97,12 +97,16 @@ def _ensure_decrypted_db() -> None:
         return
 
     try:
-        from pywxdump import batch_decrypt, read_info
+        import pywxdump
     except Exception as exc:
         raise RuntimeError(f"无法导入 pywxdump: {exc}") from exc
 
     try:
-        info = read_info()
+        info = _call_first_available(
+            pywxdump,
+            ["get_wx_info", "read_info"],
+            call_variants=[(), ({"offline": True},), ({"is_print": False},)],
+        )
     except Exception as exc:
         raise RuntimeError(f"读取微信信息失败: {exc}") from exc
 
@@ -114,16 +118,46 @@ def _ensure_decrypted_db() -> None:
     DECRYPTED_DB_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Different pywxdump versions expose different parameter names; try common patterns.
-        try:
-            batch_decrypt(wx_path=wx_path, key=key, out_path=str(DECRYPTED_DB_DIR))
-        except TypeError:
-            try:
-                batch_decrypt(wx_path, key, str(DECRYPTED_DB_DIR))
-            except TypeError:
-                batch_decrypt(key=key, out_path=str(DECRYPTED_DB_DIR))
+        _call_first_available(
+            pywxdump,
+            ["batch_decrypt", "decrypt"],
+            call_variants=[
+                ({"wx_path": wx_path, "key": key, "out_path": str(DECRYPTED_DB_DIR)},),
+                ((wx_path, key, str(DECRYPTED_DB_DIR)),),
+                ({"db_path": wx_path, "key": key, "out_path": str(DECRYPTED_DB_DIR)},),
+                ({"key": key, "out_path": str(DECRYPTED_DB_DIR)},),
+            ],
+        )
     except Exception as exc:
         raise RuntimeError(f"数据库解密失败: {exc}") from exc
+
+
+def _call_first_available(module: object, func_names: list[str], call_variants: list[tuple]) -> object:
+    errors: list[str] = []
+    for name in func_names:
+        func = getattr(module, name, None)
+        if not callable(func):
+            continue
+
+        for variant in call_variants:
+            args: tuple = ()
+            kwargs: dict = {}
+            if len(variant) == 1 and isinstance(variant[0], dict):
+                kwargs = variant[0]
+            elif len(variant) == 1 and isinstance(variant[0], tuple):
+                args = variant[0]
+            elif len(variant) == 2 and isinstance(variant[0], tuple) and isinstance(variant[1], dict):
+                args, kwargs = variant
+
+            try:
+                return func(*args, **kwargs)
+            except TypeError as exc:
+                errors.append(f"{name}{args or ''}{kwargs or ''}: {exc}")
+                continue
+
+    available = ", ".join(func_names)
+    details = " | ".join(errors[-3:]) if errors else "无可用函数"
+    raise RuntimeError(f"未找到可调用的 pywxdump API({available})，详情: {details}")
 
 
 def _extract_key(info: object) -> str:
@@ -160,9 +194,14 @@ def _iter_db_paths() -> Iterable[Path]:
     return sorted(DECRYPTED_DB_DIR.rglob("*.db"))
 
 
-def _get_chatroom_ids_by_name(group_name: str) -> set[str]:
+def _prepare_db_paths() -> list[Path]:
+    _ensure_decrypted_db()
+    return list(_iter_db_paths())
+
+
+def _get_chatroom_ids_by_name(group_name: str, db_paths: Iterable[Path]) -> set[str]:
     result: set[str] = set()
-    for db_path in _iter_db_paths():
+    for db_path in db_paths:
         try:
             with sqlite3.connect(db_path) as conn:
                 rows = conn.execute(
