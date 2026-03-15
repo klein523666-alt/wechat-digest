@@ -122,10 +122,11 @@ def _ensure_decrypted_db() -> None:
             pywxdump,
             ["batch_decrypt", "decrypt"],
             call_variants=[
-                ({"wx_path": wx_path, "key": key, "out_path": str(DECRYPTED_DB_DIR)},),
+                ({"key": key, "out_path": str(DECRYPTED_DB_DIR)},),
+                ({"key": key, "wx_path": wx_path, "out_path": str(DECRYPTED_DB_DIR)},),
                 ((wx_path, key, str(DECRYPTED_DB_DIR)),),
                 ({"db_path": wx_path, "key": key, "out_path": str(DECRYPTED_DB_DIR)},),
-                ({"key": key, "out_path": str(DECRYPTED_DB_DIR)},),
+                ({"in_path": wx_path, "key": key, "out_path": str(DECRYPTED_DB_DIR)},),
             ],
         )
     except Exception as exc:
