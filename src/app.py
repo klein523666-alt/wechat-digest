@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+import os
 from datetime import datetime
 from tkinter import messagebox, ttk
 
@@ -37,6 +38,8 @@ MODEL_TOOLTIP_TEXT = (
     "通义千问: qwen-max\n"
     "Ollama: ollama/llama3"
 )
+
+WECHAT_MOCK_ENV = "WECHAT_DIGEST_MOCK"
 
 
 class ToolTip:
@@ -435,6 +438,10 @@ class WechatDigestApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def test_telegram_connection(self) -> None:
+        if _is_mock_mode():
+            self.telegram_test_result_var.set("✅ Mock 模式：连接成功")
+            return
+
         token = self.telegram_token_var.get().strip()
         chat_id = self.telegram_chat_id_var.get().strip()
         if not token or not chat_id:
@@ -455,6 +462,7 @@ class WechatDigestApp:
         return [self.group_listbox.get(index) for index in indexes]
 
     def generate_and_send(self) -> None:
+        is_mock_mode = _is_mock_mode()
         selected_groups = self._get_selected_groups_from_ui()
         if not selected_groups:
             messagebox.showwarning("提示", "请先选择至少一个群")
@@ -476,6 +484,8 @@ class WechatDigestApp:
             ]
             if not ai_config[key]
         ]
+        if is_mock_mode:
+            missing_ai = []
         if missing_ai:
             messagebox.showwarning("提示", f"AI 配置未填写：{', '.join(missing_ai)}")
             return
@@ -487,6 +497,10 @@ class WechatDigestApp:
             missing_tg.append("Bot Token")
         if not chat_id:
             missing_tg.append("Chat ID")
+        if is_mock_mode:
+            missing_tg = []
+            token = token or "mock-token"
+            chat_id = chat_id or "mock-chat-id"
         if missing_tg:
             messagebox.showwarning("提示", f"Telegram 配置未填写：{', '.join(missing_tg)}")
             return
@@ -564,6 +578,11 @@ class WechatDigestApp:
         self.root.destroy()
 
 
+def _is_mock_mode() -> bool:
+    value = (os.getenv(WECHAT_MOCK_ENV) or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
 def main() -> None:
     root = tk.Tk()
     WechatDigestApp(root)
@@ -572,3 +591,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

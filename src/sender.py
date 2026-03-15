@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+
 import requests
+
+WECHAT_MOCK_ENV = "WECHAT_DIGEST_MOCK"
 
 
 def _escape_html(text: str) -> str:
@@ -21,6 +25,9 @@ def send_report(report_text: str, bot_token: str, chat_id: str) -> bool:
     Returns:
         True if sent successfully, otherwise False.
     """
+    if _is_mock_mode():
+        return True
+
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -69,7 +76,11 @@ def build_report(date_label: str, group_summaries: list[tuple[str, str]]) -> str
 
 def test_connection(bot_token: str, chat_id: str) -> tuple[bool, str]:
     """Send a test message to verify Telegram connection settings."""
+    if _is_mock_mode():
+        return True, ""
+
     test_message = "✅ wechat-digest 连接测试成功"
+
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -86,3 +97,8 @@ def test_connection(bot_token: str, chat_id: str) -> tuple[bool, str]:
         return True, ""
 
     return False, f"HTTP {response.status_code} - {response.text}"
+
+
+def _is_mock_mode() -> bool:
+    value = (os.getenv(WECHAT_MOCK_ENV) or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
